@@ -1,5 +1,9 @@
 # Spyder
 
+## todo:
+- [ ] queues?
+- [ ] multithreading
+
 ## use cases
 - copy all content
 - get all visible pages (not optimized for this, only requesting head would be better.)
@@ -15,7 +19,7 @@ crawls the whole provided website from an url start point to get all the possibl
 3. scan page
 4. get all links (visible and not visible)
 5. filter links to only local ones + not visited links (save external links to a list)
-6. for each link go to point 3 and repeat.
+6. for each link go to point 2 and repeat.
 
 - - -
 

@@ -13,23 +13,39 @@ class SpYder:
         "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
     }
 
-    def __init__(self):
+    def __init__(self, max_depth:int=3):
         self.session=requests.Session()
         self.session.headers.update(self.HEADERS)
 
         self.unique_domains=set()
         self.all_urls={} # start_url:set(links)
 
-    def crawl(self,url:str):
+        self.max_recursive_depth=max_depth
+
+    def crawl(self,url:str, level:int=0, recursive:bool=False):
         links=self.__get_links(url)
         if links:
-            cleared_links=self.__clean_urls(url, links)
-            if url not in self.all_urls: self.all_urls[url]=set()
+            start_domain=self.__get_domain(url)
+            cleared_links=self.__clean_urls(start_domain, url, links)
+            
+            external_urls=cleared_links["urls"]["external"]
+            internal_urls=cleared_links["urls"]["internal"]
+            
+            all_urls=external_urls.copy()
+            all_urls.update(internal_urls)
 
-            self.all_urls[url].update(cleared_links["urls"]["external"])
-            self.all_urls[url].update(cleared_links["urls"]["internal"])
+            # if url not in self.all_urls: self.all_urls[url]=set()
+            # self.all_urls[url].update(all_urls)
+            
+            if start_domain not in self.all_urls: self.all_urls[start_domain]=set()
+            self.all_urls[start_domain].update(all_urls)
 
-            self.unique_domains[url].update(cleared_links["domain"])
+            self.unique_domains.update(cleared_links["domains"])
+
+            if recursive and level<self.max_recursive_depth:
+                for url in all_urls: 
+                    self.crawl(url, level+1, recursive)
+
 
 
     def __get_links(self,url)->list:
@@ -40,7 +56,7 @@ class SpYder:
 
             html=response.text
             soup=BeautifulSoup(html,"html.parser")
-            links=set([node.get("href") for node in soup.find_all("a")])
+            links=set([node.get("href") for node in soup.find_all("a") if node.get("href")])
 
             self.__logs(f"got {len(links)} links")
 
@@ -51,15 +67,19 @@ class SpYder:
             return None
 
     def __join_url(self, url, path):
-        ready_url=url.split(urlparse(url).path)[0] if path.startswith("/") else url.split("/",1)[0]
+        main_url_path=urlparse(url).path
+
+        if not main_url_path: ready_url=url
+        elif path.startswith("/"): ready_url=url.split(main_url_path)[0]
+        else: ready_url=url.rsplit("/")[0]+"/"
+        
         return ready_url+path
 
     def __get_domain(self, url):
         subd, name, suffix=tldextract.extract(url)
         return f"{name}.{suffix}".lower()
 
-    def __clean_urls(self, start_url, links):
-        start_domain=self.__get_domain(start_url)
+    def __clean_urls(self, start_domain, start_url, links):
         sorted_urls={"external":set(),"internal":set()}
         domains=set()
 
@@ -71,7 +91,7 @@ class SpYder:
                     sorted_urls["external"].add(link)
                     domains.add(domain)
             elif ":" not in link:
-               sorted_urls["internal"].append(self.__join_url(start_url, link))
+               sorted_urls["internal"].add(self.__join_url(start_url, link))
 
         return {"urls":sorted_urls, "domains":domains}
 
