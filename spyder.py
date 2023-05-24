@@ -55,7 +55,7 @@ class SpYder:
         return ready_url+path
 
     def __get_domain(self, url):
-        subd, name, suffix=tldextract(url)
+        subd, name, suffix=tldextract.extract(url)
         return f"{name}.{suffix}".lower()
 
     def __clean_urls(self, start_url, links):
