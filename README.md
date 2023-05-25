@@ -3,6 +3,7 @@
 ## todo:
 - [ ] queues?
 - [ ] multithreading
+- [ ] some links broken due to char encoding
 
 ## use cases
 - copy all content
