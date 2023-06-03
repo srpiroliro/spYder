@@ -1,37 +1,26 @@
 # Spyder
 
 ## todo:
-- [ ] queues?
-- [ ] multithreading
+- [x] queues
+- [x] multithreading
 - [ ] some links broken due to char encoding
+- [ ] possible scenario fix: queue is empty, but the last url is still getting checked. all the other threads will quit.
+    - bool:finish=True, when crawled url doesnt return links, finsihed=finished and are_ther_new_links, thus, if there are, will result in False.
+    - useful?
+- [ ] prioritize which url goes into the queue
+    - unique domain? +++
+- [ ] remove XML message
+- [ ] Ctrl+C exit
 
-## use cases
-- copy all content
-- get all visible pages (not optimized for this, only requesting head would be better.)
-- get domains
-- scrap images
 
-
-## 1. single website crawler
-crawls the whole provided website from an url start point to get all the possible links
-
-1. get url starting point
-2. open url
-3. scan page
-4. get all links (visible and not visible)
-5. filter links to only local ones + not visited links (save external links to a list)
-6. for each link go to point 2 and repeat.
-
-- - -
-
-## 2. www crawler
-starts from a website and continues crawling.
-
-go website by website or go link by link?
-
-1. open starting point
-2. scan all links
-
-## visualization
-For both progs, create a way to visualize the data in a node graph. Each node should represent a page within the single website crawler. On the www crawler, each node should represent a separate website.
-
+## walkthrough:
+    1. get starting url
+    2. crawl that url and get the links in it.
+    3. add those links in the queue if they aren't in already. 
+        - for now store visited urls in ram.
+    4. spawn X threads
+    5. go back to point 2 and repeat.
+        - add option to stop after:
+            - X different domains.
+            - Y unique urls.
+            - Z depth levels.

@@ -6,6 +6,7 @@ from os.path import exists
 from os import remove
 from json import loads, dump
 
+from threading import Thread
 from bs4 import BeautifulSoup
 
 class SpYder:
@@ -14,117 +15,127 @@ class SpYder:
         "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
     }
 
-    def __init__(self, max_depth:int=0, internal:bool=True, external:bool=True):
-        self.__logs() # wipe logs
+    QUEUE_MAXSIZE=0 # 100_000 # 0 === unlimited
+ 
+    DATA_FOLDER="data"
+    UNIQUE_DOMAINS_FILE=f"{DATA_FOLDER}/unique_domains.json"
+    ALL_URLS_FILE=f"{DATA_FOLDER}/all_urls.json"
+
+    LOGS_FILE="spYder.log"
+
+    def __init__(self, max_urls:int=0, max_domains:int=0, internal:bool=True, external:bool=True, queue_size:int=None):
+        self.__logs()
 
         self.session=requests.Session()
         self.session.headers.update(self.HEADERS)
 
+        self.todo_urls_queue=queue.Queue(maxsize=self.QUEUE_MAXSIZE)
+
         # CHECK: not efficient?
         self.unique_domains=set()
         self.all_urls={} # start_url:set(links)
+        # se;f/all_urls=set()
         self.visited_urls=set()
 
-
         # OPTIONS
-        self.max_recursive_depth=max_depth
+        self.max_urls=max_urls
+        self.max_domains=max_domains
         self.crawl_internal=internal
         self.crawl_external=external
 
-    def crawl(self,url:str, level:int=0, thread_num:int=0):
+    def crawl(self,url:str, id_num:int=0)->set:
+        found_links=set()
+        dirty_links=[]
+
+        self.visited_urls.add(url)
+        self.__logs(f"crawling: '{url}'",id_num)
+
         try:
-            self.visited_urls.add(url)
-
-            self.__logs(f"crawling '{url}' on level={level}")
-
-            links=self.__get_links(url)
-            if not links:
-                self.__logs(f"sad :(. no links.")
-                return None
-            
-            self.__logs(f"getting domain")
-            start_domain=self.__get_domain(url)
-            self.__logs(f"domain is {start_domain}")
-
-            cleared_links=self.__clean_urls(start_domain, url, links)
-            
-            external_urls=cleared_links["urls"]["external"]
-            internal_urls=cleared_links["urls"]["internal"]
-            
-            all_urls=set()
-            if self.crawl_external: all_urls.update(external_urls)
-            if self.crawl_internal: all_urls.update(internal_urls)
-
-            # if url not in self.all_urls: self.all_urls[url]=set()
-            # self.all_urls[url].update(all_urls)
-
-            self.__logs(f"updating local sets/dicts")
-
-            if start_domain not in self.all_urls: self.all_urls[start_domain]=set()
-            self.all_urls[start_domain].update(all_urls)
-
-            self.unique_domains.update(cleared_links["domains"])
-            self.__logs(f"saved them all")
-
-            if level<self.max_recursive_depth or level<0:
-                self.__logs(f"and the adventure continues!")
-
-                for sub_url in all_urls:
-                    if sub_url in self.visited_urls: continue
-                    self.crawl(sub_url, level+1)
-                
-                self.__logs(f"recursivity done! (level={level})")
-            else:
-                self.__logs(f"no more adventure (level={level})")
-            
-            if level==0:
-                self.__logs(f"saving data")
-                self.__save_data()
-                self.__logs(f"data saved")
-
+            dirty_links=self.__get_links(url)
+            self.__logs(f"got {len(dirty_links)} links")            
         except Exception as e:
-            self.__logs(f"crawl error happend! -> e: {str(e).encode()}")
-
-
-    # TODO:
-
-    def multileg(self):
-        self.queue=queue.Queue()
-
-        # start crawl on first url
-        # add found urls to queue
-        # start X threads, each thread wait id amount of seconds
-
-    def single(self):
-        while not self.queue.isempty(): 
-            url=self.queue.get()
-            # crawl url 
-            # put all results into queue
-
-    # save to local database server
+            self.__logs(f"no links found. sad :( ",id_num)
+            return set()
         
+        # try:
+        self.__logs(f"getting domain",id_num)
+        starting_domain=self.__get_domain(url)
+        self.__logs(f"domain is {starting_domain}",id_num)
+
+        clean_links=self.__clean_urls(starting_domain, url, dirty_links)
+
+        if self.crawl_external: found_links.update(clean_links["urls"]["external"])
+        if self.crawl_internal: found_links.update(clean_links["urls"]["internal"])
+
+        self.__logs(f"updating local sets/dicts",id_num)
+
+        # CHECK: issue during multithreading?
+        if starting_domain not in self.all_urls: self.all_urls[starting_domain]=set()
+        self.all_urls[starting_domain].update(found_links)
+
+        self.unique_domains.update(clean_links["domains"])
+        self.__logs(f"saved them all",id_num)
+
+        # except Exception as e:
+        #     self.__logs(f"crawl error happend! -> e: {str(e).encode()}",id_num) 
+        #       # encode() due to url encoding errors. 
+        
+        self.__logs(f"closing.",id_num)
+
+        return found_links
+
+    def multicrawl(self, starting_url:str, threads_num:int=5)->None: 
+        self.__crawl2queue(starting_url, 0)
+    
+        threads=[]
+        for i in range(threads_num):
+            threads.append(Thread(target=self.__multicrawl_handler, args=(i,)))
+            threads[-1].start()
+        
+        for t in threads: t.join()
+
+        self.__save_data()
+
+    def clear(self):
+        for i in []:
+            if exists(i): remove(i)
 
 
 
+    def __multicrawl_handler(self, id_num:int=0):
+        self.__logs(f"INITIALIZED", id_num)
 
+        while not self.todo_urls_queue.empty() and \
+                (len(self.visited_urls)<self.max_urls or self.max_urls==0) and \
+                (len(self.unique_domains)<self.max_domains or self.max_domains==0): #  and not self.finished
+            
+            self.__logs(f"queue size: {self.todo_urls_queue.qsize()}", id_num)
+
+            url=self.todo_urls_queue.get()
+            
+            self.__crawl2queue(url, id_num)
+        
+        self.__logs(f"DEAD", id_num)
+
+    def __crawl2queue(self,url:str, id_num:int):
+        urls=self.crawl(url, id_num)
+        # self.finished=self.finished and not bool(urls)
+
+        for url in urls:
+            if url in self.visited_urls: continue
+            if self.todo_urls_queue.full(): self.__logs(f"QUEUE IS FULL!", id_num)
+
+            self.todo_urls_queue.put(url)
 
     def __get_links(self,url)->list:
-        self.__logs(f"getting links of url")
-        try:
-            response=self.session.get(url)
-            assert response.status_code==200
+        response=self.session.get(url)
+        assert response.status_code==200
 
-            html=response.text.encode()
-            soup=BeautifulSoup(html,"html.parser")
-            links=set([node.get("href") for node in soup.find_all("a") if node.get("href")])
+        html=response.text.encode()
+        soup=BeautifulSoup(html,"html.parser")
+        links=set([node.get("href") for node in soup.find_all("a") if node.get("href")])
 
-            self.__logs(f"got {len(links)} links")
-
-            return links
-        except Exception as e:
-            self.__logs(f"exception happend: {e}")
-
-            return None
+        return links
 
     def __join_url(self, url, path):
         main_url_path=urlparse(url).path
@@ -162,29 +173,30 @@ class SpYder:
         return {"urls":sorted_urls, "domains":domains}
 
     def __save_data(self):
-        self.__json2file("data/unique_domains.json", list(self.unique_domains))
+        self.__json2file(self.UNIQUE_DOMAINS_FILE, list(self.unique_domains))
 
-        # CHECK: slow?
         tmp={}
-        for domain in self.all_urls:
-            tmp[domain]=list(self.all_urls[domain])
-        self.__json2file("data/all_urls.json", tmp)
+        if type(self.all_urls) is dict:
+            # CHECK: slow?
+            for domain in self.all_urls:
+                tmp[domain]=list(self.all_urls[domain])
+        else: tmp=list(self.all_urls)
 
+        self.__json2file(self.ALL_URLS_FILE, tmp)
 
-
-    def __logs(self, message:str=None, filepath:str="simple.log", thread_num:int=0):
+    def __logs(self, message:str=None, thread_num:int=0):
         if message is None:
-            with open(filepath, "w") as f: f.write("")
+            with open(self.LOGS_FILE, "w") as f: f.write("")
             return
-        
-        with open(filepath, ("a" if exists(filepath) else "w")) as f:
+
+        with open(self.LOGS_FILE, "a") as f:
             f.write("\n["+datetime.today().strftime("%Y-%m-%d %H:%M:%S")+f"] - [{thread_num}] {message}")
 
     def __file2json(self, filepath) -> dict:
         if not exists(filepath):
             return dict()
         
-        with open(filepath,"r") as f:
+        with open(filepath) as f:
             return loads(f.read())
 
     def __json2file(self, filepath, data) -> None:
@@ -200,10 +212,15 @@ class SpYder:
         with open(filepath,"w") as f:
             dump(data, f)
 
+    def __del__(self):
+        print(f"unique domains: {len(self.unique_domains)}\nvisited urls: {len(self.visited_urls)}\nfini.")
 
 if __name__=="__main__":
-    for i in ["data/unique_domains.json","data/all_urls.json"]:
-        if exists(i): remove(i)
+    target_url="https://tecnocampus.cat/"
+    threads=20
 
-    s=SpYder(max_depth=3, external=False)
-    s.crawl("https://tecnocampus.cat/")
+    s=SpYder(max_domains=1000)
+    s.clear()
+    
+    s.multicrawl(target_url, threads)
+    # s.crawl(target_url)
