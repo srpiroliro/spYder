@@ -11,6 +11,9 @@
     - unique domain? +++
 - [ ] remove XML message
 - [ ] Ctrl+C exit
+- [ ] add Lock to fix logs
+- [ ] visited_urls: www.link != link
+- [ ] incorrect unique domains !!!
 
 
 ## walkthrough:
