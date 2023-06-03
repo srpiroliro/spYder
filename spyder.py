@@ -1,3 +1,4 @@
+import queue
 import requests, tldextract
 from urllib.parse import urlparse
 from datetime import datetime
@@ -14,7 +15,7 @@ class SpYder:
     }
 
     def __init__(self, max_depth:int=0, internal:bool=True, external:bool=True):
-        self.__logs()
+        self.__logs() # wipe logs
 
         self.session=requests.Session()
         self.session.headers.update(self.HEADERS)
@@ -24,11 +25,13 @@ class SpYder:
         self.all_urls={} # start_url:set(links)
         self.visited_urls=set()
 
+
+        # OPTIONS
         self.max_recursive_depth=max_depth
         self.crawl_internal=internal
         self.crawl_external=external
 
-    def crawl(self,url:str, level:int=0):
+    def crawl(self,url:str, level:int=0, thread_num:int=0):
         try:
             self.visited_urls.add(url)
 
@@ -78,8 +81,30 @@ class SpYder:
                 self.__logs(f"saving data")
                 self.__save_data()
                 self.__logs(f"data saved")
+
         except Exception as e:
             self.__logs(f"crawl error happend! -> e: {str(e).encode()}")
+
+
+    # TODO:
+
+    def multileg(self):
+        self.queue=queue.Queue()
+
+        # start crawl on first url
+        # add found urls to queue
+        # start X threads, each thread wait id amount of seconds
+
+    def single(self):
+        while not self.queue.isempty(): 
+            url=self.queue.get()
+            # crawl url 
+            # put all results into queue
+
+    # save to local database server
+        
+
+
 
 
 
@@ -147,13 +172,13 @@ class SpYder:
 
 
 
-    def __logs(self, message:str=None, filepath:str="simple.log"):
+    def __logs(self, message:str=None, filepath:str="simple.log", thread_num:int=0):
         if message is None:
             with open(filepath, "w") as f: f.write("")
             return
         
         with open(filepath, ("a" if exists(filepath) else "w")) as f:
-            f.write("\n["+datetime.today().strftime("%Y-%m-%d %H:%M:%S")+f"] - "+message)
+            f.write("\n["+datetime.today().strftime("%Y-%m-%d %H:%M:%S")+f"] - [{thread_num}] {message}")
 
     def __file2json(self, filepath) -> dict:
         if not exists(filepath):
@@ -161,7 +186,6 @@ class SpYder:
         
         with open(filepath,"r") as f:
             return loads(f.read())
-
 
     def __json2file(self, filepath, data) -> None:
         if exists(filepath):
