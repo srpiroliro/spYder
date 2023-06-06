@@ -6,6 +6,7 @@
 - [x] incorrect unique domains !!!
 - [ ] prioritize which url goes into the queue
     - unique domain? +++
+    - remove urls to documents/media (docx,pdfs,imgs,vids...)
 - [x] visited_urls: www.link != link
     - [ ] ~~```visited_urls={}; /* domain:paths[] */ if cleaned_url_path in visited_urls[domain]: continue;```~~
     - [x] save urls in the same format (get_domain+get_path)
