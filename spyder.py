@@ -57,31 +57,30 @@ class SpYder:
             self.__logs(f"no links found. sad :( ",id_num)
             return set()
         
-        # try:
-        self.__logs(f"getting domain",id_num)
-        starting_domain=self.__get_domain(url)
-        self.__logs(f"domain is {starting_domain}",id_num)
+        try:
+            # self.__logs(f"getting domain",id_num)
+            starting_domain=self.__get_domain(url)
+            # self.__logs(f"domain is {starting_domain}",id_num)
 
-        clean_links=self.__clean_urls(starting_domain, url, dirty_links)
+            clean_links=self.__clean_urls(starting_domain, url, dirty_links)
 
-        if self.crawl_external: found_links.update(clean_links["urls"]["external"])
-        if self.crawl_internal: found_links.update(clean_links["urls"]["internal"])
+            if self.crawl_external: found_links.update(clean_links["urls"]["external"])
+            if self.crawl_internal: found_links.update(clean_links["urls"]["internal"])
 
-        self.__logs(f"updating local sets/dicts",id_num)
+            self.__logs(f"updating local sets/dicts",id_num)
 
-        # CHECK: issue during multithreading?
-        if starting_domain not in self.all_urls: self.all_urls[starting_domain]=set()
-        self.all_urls[starting_domain].update(found_links)
+            # CHECK: issue during multithreading?
+            if starting_domain not in self.all_urls: self.all_urls[starting_domain]=set()
+            self.all_urls[starting_domain].update(found_links)
 
-        self.unique_domains.update(clean_links["domains"])
-        self.__logs(f"saved them all",id_num)
+            self.unique_domains.update(clean_links["domains"])
+            self.__logs(f"saved them all",id_num)
 
-        # except Exception as e:
-        #     self.__logs(f"crawl error happend! -> e: {str(e).encode()}",id_num) 
-        #       # encode() due to url encoding errors. 
+        except Exception as e:
+            self.__logs(f"crawl error happend! -> e: {str(e).encode()}",id_num) 
+              # encode() due to url encoding errors. 
         
         self.__logs(f"closing.",id_num)
-
         return found_links
 
     def multicrawl(self, starting_url:str, threads_num:int=5)->None: 
@@ -110,6 +109,8 @@ class SpYder:
                 (len(self.unique_domains)<self.max_domains or self.max_domains==0): #  and not self.finished
             
             self.__logs(f"queue size: {self.todo_urls_queue.qsize()}", id_num)
+            self.__logs(f"unique domains: {len(self.unique_domains)}", id_num)
+            self.__logs(f"visited urls: {len(self.visited_urls)}", id_num)
 
             url=self.todo_urls_queue.get()
             
