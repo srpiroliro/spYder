@@ -24,7 +24,7 @@ class SpYder:
 
     LOGS_FILE=f"{DATA_FOLDER}/execution.log"
 
-    GRAPH_MAP_FILE=f"{DATA_FOLDER}/map.svg"
+    GRAPH_MAP_FILE=f"{DATA_FOLDER}/map.png"
 
     def __init__(self, max_urls:int=0, max_domains:int=0, internal:bool=True, external:bool=True, queue_size:int=QUEUE_MAXSIZE, plot_it:bool=False):
         if not exists(self.DATA_FOLDER): mkdir(self.DATA_FOLDER)
@@ -113,14 +113,15 @@ class SpYder:
         G.add_nodes_from(self.unique_domains)
         G.add_edges_from(self.connections)
 
-        nx.draw(G, with_labels=True)
-        
-        plt.savefig(self.GRAPH_MAP_FILE)
+        plt.figure(frameon=False).set_size_inches(10,10)
+        nx.draw(G, with_labels=True, font_size=7, node_size=60)
+
+        plt.savefig(self.GRAPH_MAP_FILE, dpi=200)
         plt.show()
 
 
     def clear(self):
-        for i in []:
+        for i in [self.ALL_URLS_FILE, self.GRAPH_MAP_FILE, self.UNIQUE_DOMAINS_FILE]:
             if exists(i): remove(i)
 
     # HELPERS
@@ -175,7 +176,7 @@ class SpYder:
         return ready_url+path
 
     def __get_domain(self, url:str)->str|None:
-        subd, name, suffix=tldextract.extract(url)
+        _, name, suffix=tldextract.extract(url)
         return f"{name}.{suffix}".lower() if name and suffix else False
     
     def __get_path(self,url:str)->str:
@@ -246,9 +247,9 @@ class SpYder:
 
 if __name__=="__main__":
     target_url="https://tecnocampus.cat/"
-    threads=20
+    threads=10
 
-    s=SpYder(max_domains=200, plot_it=True)
+    s=SpYder(max_domains=100, plot_it=True)
     s.clear()
 
     s.multicrawl(target_url, threads)

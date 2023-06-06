@@ -13,6 +13,7 @@
 - [x] draw a map of graphs to display the connections between domains
     - [x] add names to each node
     - [x] save image function
+- [ ] pass url, threads, domains... through cli
 
 
 - [ ] possible scenario fix: queue is empty, but the last url is still getting checked. all the other threads will quit.
