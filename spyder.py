@@ -1,11 +1,12 @@
-import queue
-import requests, tldextract
+import queue, requests, tldextract
+import networkx as nx
+import matplotlib.pyplot as plt
+
 from urllib.parse import urlparse
 from datetime import datetime
 from os.path import exists
 from os import remove
 from json import loads, dump
-
 from threading import Thread
 from bs4 import BeautifulSoup
 
@@ -21,20 +22,19 @@ class SpYder:
     UNIQUE_DOMAINS_FILE=f"{DATA_FOLDER}/unique_domains.json"
     ALL_URLS_FILE=f"{DATA_FOLDER}/all_urls.json"
 
-    LOGS_FILE="spYder.log"
+    LOGS_FILE=f"{DATA_FOLDER}/execution.log"
 
-    def __init__(self, max_urls:int=0, max_domains:int=0, internal:bool=True, external:bool=True, queue_size:int=None):
+    def __init__(self, max_urls:int=0, max_domains:int=0, internal:bool=True, external:bool=True, queue_size:int=QUEUE_MAXSIZE, plot_it:bool=False):
         self.__logs()
 
         self.session=requests.Session()
         self.session.headers.update(self.HEADERS)
 
-        self.todo_urls_queue=queue.Queue(maxsize=self.QUEUE_MAXSIZE)
+        self.todo_urls_queue=queue.Queue(maxsize=queue_size)
 
         # CHECK: not efficient?
         self.unique_domains=set()
         self.all_urls={} # start_url:set(links)
-        # se;f/all_urls=set()
         self.visited_urls=set()
 
         # OPTIONS
@@ -43,11 +43,18 @@ class SpYder:
         self.crawl_internal=internal
         self.crawl_external=external
 
+        # MAP OF GRAPHS
+        self.plot_it=plot_it
+        if self.plot_it: self.connections=[]
+
     def crawl(self,url:str, id_num:int=0)->set:
         found_links=set()
         dirty_links=[]
 
-        self.visited_urls.add(url)
+        starting_domain=self.__get_domain(url) 
+        # cant return None due to being a valid url (if no exception was raised.)
+
+        self.visited_urls.add(self.__format_url(url))
         self.__logs(f"crawling: '{url}'",id_num)
 
         try:
@@ -58,10 +65,6 @@ class SpYder:
             return set()
         
         try:
-            # self.__logs(f"getting domain",id_num)
-            starting_domain=self.__get_domain(url)
-            # self.__logs(f"domain is {starting_domain}",id_num)
-
             clean_links=self.__clean_urls(starting_domain, url, dirty_links)
 
             if self.crawl_external: found_links.update(clean_links["urls"]["external"])
@@ -76,11 +79,15 @@ class SpYder:
             self.unique_domains.update(clean_links["domains"])
             self.__logs(f"saved them all",id_num)
 
+            if self.plot_it:
+                self.connections+=[[starting_domain, other_domain] for other_domain in clean_links["domains"]]
+
         except Exception as e:
             self.__logs(f"crawl error happend! -> e: {str(e).encode()}",id_num) 
-              # encode() due to url encoding errors. 
+            # encode() due to url encoding errors. 
         
         self.__logs(f"closing.",id_num)
+
         return found_links
 
     def multicrawl(self, starting_url:str, threads_num:int=5)->None: 
@@ -95,11 +102,23 @@ class SpYder:
 
         self.__save_data()
 
+        if self.plot_it: self.graphs_map()
+            
+    def graphs_map(self):
+        G=nx.Graph()
+        G.add_nodes_from(self.unique_domains)
+        G.add_edges_from(self.connections)
+
+        nx.draw(G)
+        plt.show()
+
+
+
     def clear(self):
         for i in []:
             if exists(i): remove(i)
 
-
+    # HELPERS
 
     def __multicrawl_handler(self, id_num:int=0):
         self.__logs(f"INITIALIZED", id_num)
@@ -123,8 +142,8 @@ class SpYder:
         # self.finished=self.finished and not bool(urls)
 
         for url in urls:
-            if url in self.visited_urls: continue
-            if self.todo_urls_queue.full(): self.__logs(f"QUEUE IS FULL!", id_num)
+            if self.__format_url(url) in self.visited_urls: continue
+            elif self.todo_urls_queue.full(): self.__logs(f"QUEUE IS FULL!", id_num)
 
             self.todo_urls_queue.put(url)
 
@@ -150,11 +169,19 @@ class SpYder:
 
         return ready_url+path
 
-    def __get_domain(self, url):
+    def __get_domain(self, url:str)->str|None:
         subd, name, suffix=tldextract.extract(url)
-        if name and suffix: return f"{name}.{suffix}".lower()
+        return f"{name}.{suffix}".lower() if name and suffix else False
+    
+    def __get_path(self,url:str)->str:
+        path=urlparse(url).path
+        return "/" if not path else path
 
-        return False
+    def __format_url(self,url:str)->str|None:
+        domain=self.__get_domain() 
+        if not domain: return None
+
+        return domain+self.__get_path(url)
 
     def __clean_urls(self, start_domain, start_url, links):
         sorted_urls={"external":set(),"internal":set()}
@@ -162,7 +189,7 @@ class SpYder:
 
         for link in links:
             if link.startswith("http") and "://" in link:
-                domain=self.__get_domain(link) # append domain to 
+                domain=self.__get_domain(link)
 
                 if not domain: continue
                 elif domain==start_domain:
@@ -179,9 +206,9 @@ class SpYder:
     def __save_data(self):
         self.__json2file(self.UNIQUE_DOMAINS_FILE, list(self.unique_domains))
 
+        # CHECK: slow?
         tmp={}
         if type(self.all_urls) is dict:
-            # CHECK: slow?
             for domain in self.all_urls:
                 tmp[domain]=list(self.all_urls[domain])
         else: tmp=list(self.all_urls)
@@ -203,16 +230,9 @@ class SpYder:
         with open(filepath) as f:
             return loads(f.read())
 
-    def __json2file(self, filepath, data) -> None:
-        if exists(filepath):
-            file_contents=self.__file2json(filepath)
-            if not type(file_contents) is type(data):
-                pass # ignore and later on overwrite
-            elif type(file_contents) is list:
-                data+=file_contents
-            elif type(file_contents) is dict:
-                data=data|file_contents
-        
+    def __json2file(self, filepath, data) -> None:       
+        # TODO: modify in the future
+
         with open(filepath,"w") as f:
             dump(data, f)
 
@@ -223,7 +243,7 @@ if __name__=="__main__":
     target_url="https://tecnocampus.cat/"
     threads=20
 
-    s=SpYder(max_domains=1000)
+    s=SpYder(max_domains=200)
     s.clear()
 
     s.multicrawl(target_url, threads)

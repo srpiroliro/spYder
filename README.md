@@ -3,17 +3,28 @@
 ## todo:
 - [x] queues
 - [x] multithreading
-- [ ] some links broken due to char encoding
+- [x] incorrect unique domains !!!
+- [ ] prioritize which url goes into the queue
+    - unique domain? +++
+- [ ] visited_urls: www.link != link
+    - ```visited_urls={}; /* domain:paths[] */ if cleaned_url_path in visited_urls[domain]: continue;```
+    - save urls in the same format (get_domain+get_path)
+- [ ] draw a map of graphs to display the connections
+    - we need: 
+        - nodes: domains[]
+        - connections: (domainA,domainB)
+    - generate after execution or during?
+
+
 - [ ] possible scenario fix: queue is empty, but the last url is still getting checked. all the other threads will quit.
     - bool:finish=True, when crawled url doesnt return links, finsihed=finished and are_ther_new_links, thus, if there are, will result in False.
     - useful?
-- [ ] prioritize which url goes into the queue
-    - unique domain? +++
-- [ ] remove XML message
 - [ ] Ctrl+C exit
 - [ ] add Lock to fix logs
-- [ ] visited_urls: www.link != link
-- [ ] incorrect unique domains !!!
+- [ ] some links broken 
+    - due to char encoding
+    - `http//domain.com` (no :)
+- [ ] remove XML message
 
 
 ## walkthrough:
