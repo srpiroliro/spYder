@@ -133,7 +133,7 @@ class SpYder:
 
         html=response.text.encode()
         soup=BeautifulSoup(html,"html.parser")
-        links=set([node.get("href") for node in soup.find_all("a") if node.get("href")])
+        links=set([node.get("href").strip() for node in soup.find_all("a") if node.get("href")])
 
         return links
 
@@ -151,7 +151,9 @@ class SpYder:
 
     def __get_domain(self, url):
         subd, name, suffix=tldextract.extract(url)
-        return f"{name}.{suffix}".lower()
+        if name and suffix: return f"{name}.{suffix}".lower()
+
+        return False
 
     def __clean_urls(self, start_domain, start_url, links):
         sorted_urls={"external":set(),"internal":set()}
@@ -161,7 +163,8 @@ class SpYder:
             if link.startswith("http") and "://" in link:
                 domain=self.__get_domain(link) # append domain to 
 
-                if domain==start_domain:
+                if not domain: continue
+                elif domain==start_domain:
                     sorted_urls["internal"].add(link)
                 else:
                     sorted_urls["external"].add(link)
@@ -221,6 +224,6 @@ if __name__=="__main__":
 
     s=SpYder(max_domains=1000)
     s.clear()
-    
+
     s.multicrawl(target_url, threads)
     # s.crawl(target_url)
