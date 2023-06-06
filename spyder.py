@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from urllib.parse import urlparse
 from datetime import datetime
 from os.path import exists
-from os import remove
+from os import remove, mkdir
 from json import loads, dump
 from threading import Thread
 from bs4 import BeautifulSoup
@@ -25,6 +25,8 @@ class SpYder:
     LOGS_FILE=f"{DATA_FOLDER}/execution.log"
 
     def __init__(self, max_urls:int=0, max_domains:int=0, internal:bool=True, external:bool=True, queue_size:int=QUEUE_MAXSIZE, plot_it:bool=False):
+        if not exists(self.DATA_FOLDER): mkdir(self.DATA_FOLDER)
+        
         self.__logs()
 
         self.session=requests.Session()
@@ -178,7 +180,7 @@ class SpYder:
         return "/" if not path else path
 
     def __format_url(self,url:str)->str|None:
-        domain=self.__get_domain() 
+        domain=self.__get_domain(url) 
         if not domain: return None
 
         return domain+self.__get_path(url)
@@ -243,7 +245,7 @@ if __name__=="__main__":
     target_url="https://tecnocampus.cat/"
     threads=20
 
-    s=SpYder(max_domains=200)
+    s=SpYder(max_domains=200, plot_it=True)
     s.clear()
 
     s.multicrawl(target_url, threads)

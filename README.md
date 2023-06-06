@@ -6,14 +6,12 @@
 - [x] incorrect unique domains !!!
 - [ ] prioritize which url goes into the queue
     - unique domain? +++
-- [ ] visited_urls: www.link != link
-    - ```visited_urls={}; /* domain:paths[] */ if cleaned_url_path in visited_urls[domain]: continue;```
-    - save urls in the same format (get_domain+get_path)
-- [ ] draw a map of graphs to display the connections
-    - we need: 
-        - nodes: domains[]
-        - connections: (domainA,domainB)
-    - generate after execution or during?
+- [x] visited_urls: www.link != link
+    - [ ] ~~```visited_urls={}; /* domain:paths[] */ if cleaned_url_path in visited_urls[domain]: continue;```~~
+    - [x] save urls in the same format (get_domain+get_path)
+- [x] draw a map of graphs to display the connections between domains
+    - add names to each node
+    - save image function
 
 
 - [ ] possible scenario fix: queue is empty, but the last url is still getting checked. all the other threads will quit.
@@ -23,7 +21,7 @@
 - [ ] add Lock to fix logs
 - [ ] some links broken 
     - due to char encoding
-    - `http//domain.com` (no :)
+    - [x] `http//domain.com` (no :) (CHECK)
 - [ ] remove XML message
 
 
