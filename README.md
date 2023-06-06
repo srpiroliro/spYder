@@ -10,8 +10,8 @@
     - [ ] ~~```visited_urls={}; /* domain:paths[] */ if cleaned_url_path in visited_urls[domain]: continue;```~~
     - [x] save urls in the same format (get_domain+get_path)
 - [x] draw a map of graphs to display the connections between domains
-    - add names to each node
-    - save image function
+    - [x] add names to each node
+    - [x] save image function
 
 
 - [ ] possible scenario fix: queue is empty, but the last url is still getting checked. all the other threads will quit.
