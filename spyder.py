@@ -16,6 +16,8 @@ class SpYder:
         "Accept":"text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
     }
 
+    REQUEST_TIMEOUT=2
+
     QUEUE_MAXSIZE=0 # 100_000 # 0 === unlimited
  
     DATA_FOLDER="data"
@@ -59,11 +61,11 @@ class SpYder:
         # cant return None due to being a valid url (if no exception was raised.)
 
         self.visited_urls.add(self.__format_url(url))
-        self.__logs(f"crawling: '{url}'",id_num)
+        self.__logs(f"crawling: {str(url.encode()).replace('b','')}",id_num)
 
         try:
             dirty_links=self.__get_links(url)
-            self.__logs(f"got {len(dirty_links)} links")            
+            self.__logs(f"got {len(dirty_links)} links")
         except Exception as e:
             self.__logs(f"no links found. sad :( ",id_num)
             return set()
@@ -103,10 +105,15 @@ class SpYder:
             threads[-1].start()
         
         for t in threads: t.join()
+        self.__logs(f"crawl finished.")
 
         self.__save_data()
+        self.__logs(f"saved")
 
-        if self.plot_it: self.graphs_map()
+        if self.plot_it: 
+            self.__logs(f"graph drawn")
+            self.graphs_map()
+            self.__logs(f"drawing graph")
             
     def graphs_map(self):
         G=nx.Graph()
@@ -114,11 +121,11 @@ class SpYder:
         G.add_nodes_from(self.unique_domains)
         G.add_edges_from(self.connections)
 
-        plt.figure(frameon=False).set_size_inches(10,10)
-        nx.draw(G, with_labels=True, font_size=7, node_size=60)
+        plt.figure(frameon=False).set_size_inches(12,12)
+        nx.draw(G, with_labels=True, font_size=7, font_color="white", node_size=50)
 
         plt.savefig(self.GRAPH_MAP_FILE, dpi=200)
-        plt.show()
+        # plt.show()
 
     def clear(self):
         for i in [self.ALL_URLS_FILE, self.GRAPH_MAP_FILE, self.UNIQUE_DOMAINS_FILE]:
@@ -154,7 +161,7 @@ class SpYder:
             self.todo_urls_queue.put(url)
 
     def __get_links(self,url)->list:
-        response=self.session.get(url)
+        response=self.session.get(url, timeout=self.REQUEST_TIMEOUT)
         assert response.status_code==200
 
         html=response.text.encode()

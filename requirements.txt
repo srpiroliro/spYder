@@ -4,3 +4,4 @@ urllib3
 requests
 beautifulsoup4
 networkx
+scipy
