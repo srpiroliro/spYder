@@ -1,10 +1,10 @@
 from spyder import SpYder
 
-target_url="https://tecnocampus.cat/"
+target_url="https://www.uab.cat/"
 threads=40
 
 s=SpYder(
-    max_domains=4000, 
+    max_domains=3000, 
     plot_it=True, 
     internal=False,
     external=True

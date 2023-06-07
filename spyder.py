@@ -28,30 +28,44 @@ class SpYder:
 
     GRAPH_MAP_FILE=f"{DATA_FOLDER}/map.png"
 
-    def __init__(self, max_urls:int=0, max_domains:int=0, internal:bool=True, external:bool=True, queue_size:int=QUEUE_MAXSIZE, plot_it:bool=False):
+    def __init__(self, max_urls:int=0, max_domains:int=0, internal:bool=True, external:bool=True, queue_size:int=QUEUE_MAXSIZE, plot_it:bool=False, all_urls:bool=False, blacklisted_domains:list=[], blacklisted_words:list=[]):
         if not exists(self.DATA_FOLDER): mkdir(self.DATA_FOLDER)
         
         self.__logs()
 
+        # Request session (good for inteernal crawling)
         self.session=requests.Session()
         self.session.headers.update(self.HEADERS)
 
+        # Queue
         self.todo_urls_queue=queue.Queue(maxsize=queue_size)
+
 
         # CHECK: not efficient?
         self.unique_domains=set()
-        self.all_urls={} # start_url:set(links)
         self.visited_urls=set()
 
-        # OPTIONS
+        self.enable_all_urls=all_urls
+        if self.enable_all_urls:
+            self.all_urls={} # start_url:set(links)
+
+
+        # ~ OPTIONS ~
         self.max_urls=max_urls
         self.max_domains=max_domains
         self.crawl_internal=internal
         self.crawl_external=external
 
+        # Blacklistings
+        self.blacklisted_domains=blacklisted_domains
+        self.blacklisted_words=blacklisted_words
+
+        # ~ ~ ~ ~
+
         # MAP OF GRAPHS
         self.plot_it=plot_it
-        if self.plot_it: self.connections=[]
+        if self.plot_it: 
+            self.connections=[]
 
     def crawl(self,url:str, id_num:int=0)->set:
         found_links=set()
@@ -79,8 +93,9 @@ class SpYder:
             self.__logs(f"updating local sets/dicts",id_num)
 
             # CHECK: issue during multithreading?
-            if starting_domain not in self.all_urls: self.all_urls[starting_domain]=set()
-            self.all_urls[starting_domain].update(found_links)
+            if self.enable_all_urls:
+                if starting_domain not in self.all_urls: self.all_urls[starting_domain]=set()
+                self.all_urls[starting_domain].update(found_links)
 
             self.unique_domains.update(clean_links["domains"])
             self.__logs(f"saved them all",id_num)
@@ -155,7 +170,14 @@ class SpYder:
         # self.finished=self.finished and not bool(urls)
 
         for url in urls:
-            if self.__format_url(url) in self.visited_urls: continue
+            url_domain=self.__get_domain()
+            if self.__format_url(url) in self.visited_urls or \
+                any([b in url_domain for b in self.blacklisted_words]) or \
+                url_domain in self.blacklisted_domains: 
+
+                # CHECK: any() too slow?
+                continue
+
             elif self.todo_urls_queue.full(): self.__logs(f"QUEUE IS FULL!", id_num)
 
             self.todo_urls_queue.put(url)
@@ -220,13 +242,14 @@ class SpYder:
         self.__json2file(self.UNIQUE_DOMAINS_FILE, list(self.unique_domains))
 
         # CHECK: slow?
-        tmp={}
-        if type(self.all_urls) is dict:
-            for domain in self.all_urls:
-                tmp[domain]=list(self.all_urls[domain])
-        else: tmp=list(self.all_urls)
+        if self.enable_all_urls:
+            tmp={}
+            if type(self.all_urls) is dict:
+                for domain in self.all_urls:
+                    tmp[domain]=list(self.all_urls[domain])
+            else: tmp=list(self.all_urls)
 
-        self.__json2file(self.ALL_URLS_FILE, tmp)
+            self.__json2file(self.ALL_URLS_FILE, tmp)
 
     def __logs(self, message:str=None, thread_num:int=0):
         if message is None:

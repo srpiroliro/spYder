@@ -14,7 +14,8 @@
     - [x] add names to each node
     - [x] save image function
 - [ ] pass url, threads, domains... through cli
-
+- [x] blacklisted 
+domains
 
 - [ ] possible scenario fix: queue is empty, but the last url is still getting checked. all the other threads will quit.
     - bool:finish=True, when crawled url doesnt return links, finsihed=finished and are_ther_new_links, thus, if there are, will result in False.
