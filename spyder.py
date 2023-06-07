@@ -24,7 +24,7 @@ class SpYder:
 
     LOGS_FILE=f"{DATA_FOLDER}/execution.log"
 
-    GRAPH_MAP_FILE=f"{DATA_FOLDER}/map.svg"
+    GRAPH_MAP_FILE=f"{DATA_FOLDER}/map.png"
 
     def __init__(self, max_urls:int=0, max_domains:int=0, internal:bool=True, external:bool=True, queue_size:int=QUEUE_MAXSIZE, plot_it:bool=False):
         if not exists(self.DATA_FOLDER): mkdir(self.DATA_FOLDER)
@@ -110,14 +110,14 @@ class SpYder:
             
     def graphs_map(self):
         G=nx.Graph()
+
         G.add_nodes_from(self.unique_domains)
         G.add_edges_from(self.connections)
 
         nx.draw(G, with_labels=True)
-        
+
         plt.savefig(self.GRAPH_MAP_FILE)
         plt.show()
-
 
     def clear(self):
         for i in []:
@@ -248,7 +248,7 @@ if __name__=="__main__":
     target_url="https://tecnocampus.cat/"
     threads=20
 
-    s=SpYder(max_domains=200, plot_it=True)
+    s=SpYder(max_domains=200, plot_it=True, internal=False)
     s.clear()
 
     s.multicrawl(target_url, threads)
