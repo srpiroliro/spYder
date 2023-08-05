@@ -28,7 +28,37 @@ class SpYder:
 
     GRAPH_MAP_FILE=f"{DATA_FOLDER}/map.png"
 
-    def __init__(self, max_urls:int=0, max_domains:int=0, internal:bool=True, external:bool=True, queue_size:int=QUEUE_MAXSIZE, plot_it:bool=False, all_urls:bool=False, blacklisted_domains:list=[], blacklisted_words:list=[]):
+    def __init__(
+        self,
+        
+        max_urls:int=0,
+        max_domains:int=0,
+        
+        save_img_urls:bool=False, # save images urls
+        save_css_urls:bool=False, # ...
+        save_js_urls:bool=False, # ...
+        save_links:bool=True, # by default its a only link crawler/getter.
+        
+        check_url_status:bool=False, # all urls are checked for status. If true, at the end returns list of 4xx/5xx
+        
+        internal_crawl:bool=True, # check internal content
+        internal_imgs:bool=False,
+        internal_css:bool=False,
+        internal_js:bool=False,
+
+        external_crawl:bool=True, # check external content
+        external_imgs:bool=False,
+        external_css:bool=False,
+        external_js:bool=False,
+        
+        queue_size:int=QUEUE_MAXSIZE,
+        plot_it:bool=False, # open image directly. the more websiets crawled, more struggle
+        all_urls:bool=False, # aka visited urls history (with false only saves domain, otherwise will display all the links visited in domain)
+        
+        # dont open links contaninng ...
+        blacklisted_domains:list=[], 
+        blacklisted_words:list=[]
+    ):
         if not exists(self.DATA_FOLDER): mkdir(self.DATA_FOLDER)
         
         self.__logs()
@@ -50,12 +80,29 @@ class SpYder:
             self.all_urls={} # start_url:set(links)
 
 
+
         # ~ OPTIONS ~
         self.max_urls=max_urls
         self.max_domains=max_domains
-        self.crawl_internal=internal
-        self.crawl_external=external
-
+        
+        # TODO: implement.
+        self.save_img_urls=save_img_urls
+        self.save_css_urls=save_css_urls
+        self.save_js_urls=save_js_urls
+        self.save_links=save_links
+        
+        self.check_url_status=check_url_status
+        
+        self.crawl_external=external_crawl
+        self.imgs_external=external_imgs
+        self.css_external=external_css
+        self.js_external=external_js
+        
+        self.crawl_internal=internal_crawl
+        self.imgs_internal=internal_imgs
+        self.css_internal=internal_css
+        self.js_internal=internal_js
+        
         # Blacklistings
         self.blacklisted_domains=blacklisted_domains
         self.blacklisted_words=blacklisted_words
@@ -89,6 +136,7 @@ class SpYder:
 
             if self.crawl_external: found_links.update(clean_links["urls"]["external"])
             if self.crawl_internal: found_links.update(clean_links["urls"]["internal"])
+            # TODO: add imgs,js and css
 
             self.__logs(f"updating local sets/dicts",id_num)
 
@@ -129,7 +177,8 @@ class SpYder:
             self.__logs(f"graph drawn")
             self.graphs_map()
             self.__logs(f"drawing graph")
-            
+
+         
     def graphs_map(self):
         G=nx.Graph()
 
@@ -141,6 +190,8 @@ class SpYder:
 
         plt.savefig(self.GRAPH_MAP_FILE, dpi=200)
         # plt.show()
+
+
 
     def clear(self):
         for i in [self.ALL_URLS_FILE, self.GRAPH_MAP_FILE, self.UNIQUE_DOMAINS_FILE]:
@@ -183,14 +234,22 @@ class SpYder:
             self.todo_urls_queue.put(url)
 
     def __get_links(self,url)->list:
-        response=self.session.get(url, timeout=self.REQUEST_TIMEOUT)
+        response=self.session.get(url, timeout=self.REQUEST_TIMEOUT, headers=self.custom_headers)
         assert response.status_code==200
 
+        # TODO: if css enabled, search links in .css file with regex.
         html=response.text.encode()
         soup=BeautifulSoup(html,"html.parser")
         links=set([node.get("href").strip() for node in soup.find_all("a") if node.get("href")])
 
         return links
+    
+    def __ping_url(self, url)->bool:
+        # CHECK: have in mind that http redirects to https, causing this to return False.
+        try:
+            response=requests.head(url, timeout=self.REQUEST_TIMEOUT, headers=self.custom_headers, allow_redirects=False)
+            return response.status_code==200
+        except: return False
 
     def __join_url(self, url, path):
         main_url_path=urlparse(url).path
@@ -221,6 +280,8 @@ class SpYder:
     def __clean_urls(self, start_domain, start_url, links):
         sorted_urls={"external":set(),"internal":set()}
         domains=set()
+        
+        # TODO: add img, css and js.
 
         for link in links:
             if link.startswith("http") and "://" in link:
@@ -233,7 +294,12 @@ class SpYder:
                     sorted_urls["external"].add(link)
                     domains.add(domain)
 
-            elif ":" not in link and not "//" in link and not link.startswith("?") and not link.startswith("#"):
+            elif ":" not in link \
+                and not "//" in link \
+                    and not link.startswith("?") \
+                    and not link.startswith("#") \
+                    and not link.startswith("data:"):
+
                sorted_urls["internal"].add(self.__join_url(start_url, link)) 
 
         return {"urls":sorted_urls, "domains":domains}
@@ -266,7 +332,7 @@ class SpYder:
         with open(filepath) as f:
             return loads(f.read())
 
-    def __json2file(self, filepath, data) -> None:       
+    def __json2file(self, filepath, data) -> None: 
         # TODO: modify in the future
 
         with open(filepath,"w") as f:

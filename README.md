@@ -1,18 +1,6 @@
 # Spyder
 
 ## todo:
-- [x] queues
-- [x] multithreading
-- [x] incorrect unique domains !!!
-- [ ] prioritize which url goes into the queue
-    - unique domain? +++
-    - remove urls to documents/media (docx,pdfs,imgs,vids...)
-- [x] visited_urls: www.link != link
-    - [ ] ~~```visited_urls={}; /* domain:paths[] */ if cleaned_url_path in visited_urls[domain]: continue;```~~
-    - [x] save urls in the same format (get_domain+get_path)
-- [x] draw a map of graphs to display the connections between domains
-    - [x] add names to each node
-    - [x] save image function
 - [ ] pass url, threads, domains... through cli
 - [x] blacklisted 
 domains
@@ -27,15 +15,7 @@ domains
     - [x] `http//domain.com` (no :) (CHECK)
 - [ ] remove XML message
 
-
-## walkthrough:
-    1. get starting url
-    2. crawl that url and get the links in it.
-    3. add those links in the queue if they aren't in already. 
-        - for now store visited urls in ram.
-    4. spawn X threads
-    5. go back to point 2 and repeat.
-        - add option to stop after:
-            - X different domains.
-            - Y unique urls.
-            - Z depth levels.
+- [ ] add css, media and js checking.
+- [ ] multiple starting urls
+- [ ] check for 4XX/5XX urls (especially for media,css and js) and return this data.
+- [ ] option to save only css, js, media or links.
