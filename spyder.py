@@ -1,4 +1,5 @@
 import queue, requests, tldextract
+import re
 import networkx as nx
 import matplotlib.pyplot as plt
 
@@ -34,7 +35,8 @@ class SpYder:
         max_urls:int=0,
         max_domains:int=0,
         
-        save_img_urls:bool=False, # save images urls
+        # save_domains:bool=False, # saves a list of domains
+        save_media_urls:bool=False, # save images urls
         save_css_urls:bool=False, # ...
         save_js_urls:bool=False, # ...
         save_links:bool=True, # by default its a only link crawler/getter.
@@ -42,12 +44,12 @@ class SpYder:
         check_url_status:bool=False, # all urls are checked for status. If true, at the end returns list of 4xx/5xx
         
         internal_crawl:bool=True, # check internal content
-        internal_imgs:bool=False,
+        internal_media:bool=False,
         internal_css:bool=False,
         internal_js:bool=False,
 
         external_crawl:bool=True, # check external content
-        external_imgs:bool=False,
+        external_media:bool=False,
         external_css:bool=False,
         external_js:bool=False,
         
@@ -71,6 +73,7 @@ class SpYder:
         self.todo_urls_queue=queue.Queue(maxsize=queue_size)
 
 
+        self.save_domains=True # save_domains
         # CHECK: not efficient?
         self.unique_domains=set()
         self.visited_urls=set()
@@ -86,7 +89,7 @@ class SpYder:
         self.max_domains=max_domains
         
         # TODO: implement.
-        self.save_img_urls=save_img_urls
+        self.save_media_urls=save_media_urls
         self.save_css_urls=save_css_urls
         self.save_js_urls=save_js_urls
         self.save_links=save_links
@@ -94,12 +97,12 @@ class SpYder:
         self.check_url_status=check_url_status
         
         self.crawl_external=external_crawl
-        self.imgs_external=external_imgs
+        self.imgs_external=external_media
         self.css_external=external_css
         self.js_external=external_js
         
         self.crawl_internal=internal_crawl
-        self.imgs_internal=internal_imgs
+        self.imgs_internal=internal_media
         self.css_internal=internal_css
         self.js_internal=internal_js
         
@@ -125,7 +128,7 @@ class SpYder:
         self.__logs(f"crawling: {str(url.encode()).replace('b','')}",id_num)
 
         try:
-            dirty_links=self.__get_links(url)
+            dirty_links=self.__get_urls(url)
             self.__logs(f"got {len(dirty_links)} links")
         except Exception as e:
             self.__logs(f"no links found. sad :( ",id_num)
@@ -145,8 +148,9 @@ class SpYder:
                 if starting_domain not in self.all_urls: self.all_urls[starting_domain]=set()
                 self.all_urls[starting_domain].update(found_links)
 
-            self.unique_domains.update(clean_links["domains"])
-            self.__logs(f"saved them all",id_num)
+            if self.save_domains:
+                self.unique_domains.update(clean_links["domains"])
+                self.__logs(f"saved them all",id_num)
 
             if self.plot_it:
                 self.connections+=[[starting_domain, other_domain] for other_domain in clean_links["domains"]]
@@ -182,7 +186,9 @@ class SpYder:
     def graphs_map(self):
         G=nx.Graph()
 
-        G.add_nodes_from(self.unique_domains)
+        if self.save_links: G.add_nodes_from(self.unique_domains)
+        elif self.save_domains: G.add_nodes_from(self.unique_domains)
+
         G.add_edges_from(self.connections)
 
         plt.figure(frameon=False).set_size_inches(12,12)
@@ -233,33 +239,85 @@ class SpYder:
 
             self.todo_urls_queue.put(url)
 
-    def __get_links(self,url)->list:
+    def __get_urls(self,url)->list:
+        url_file=url.split("?")[0].split("://")[1].lower()
+        if not (url_file.endswith("/") or "." not in url_file.split("/")[-1] or url_file.count("/")==0):
+            url_file=url_file.split("/")[-1]
+        else: url_file=url_file.strip("/")+f"/index.html"
+        
+        if not (".htm" in url_file or ".php" in url_file or ".css" in url_file):
+            raise Exception(f"given file ({url_file}) isn't supported.")
+
+
         response=self.session.get(url, timeout=self.REQUEST_TIMEOUT, headers=self.custom_headers)
         assert response.status_code==200
 
-        # TODO: if css enabled, search links in .css file with regex.
-        html=response.text.encode()
-        soup=BeautifulSoup(html,"html.parser")
-        links=set([node.get("href").strip() for node in soup.find_all("a") if node.get("href")])
-
-        return links
+        source_code=response.text.encode()
+        if ".htm" in url_file or ".php" in url_file:
+            return self.__get_urls_from_html(source_code, url)
+        elif ".css" in url_file and self.save_css_urls:
+            return self.__get_urls_from_css(source_code, url)
+        
+        return
     
-    def __ping_url(self, url)->bool:
+    def __get_urls_from_html(self, source_code:str, current_url:str):
+        soup=BeautifulSoup(source_code,"html.parser")
+        
+        urls=set()
+        if self.save_links:
+            urls|=set(node.get("href").strip() for node in soup.find_all("a") if node.get("href"))
+        
+        if self.save_css_urls:
+            urls|=set(node.get("href").strip() for node in soup.find_all("link") if node.get("href"))
+            
+        if self.save_js_urls:
+            urls|=set(node.get("src").strip() for node in soup.find_all("script") if node.get("src"))
+            
+        if self.save_media_urls:
+            urls|=set(node.get("src").strip() for node in soup.find_all("img") if node.get("src"))
+            urls|=set(node.get("src").strip() for node in soup.find_all("video") if node.get("src"))
+            
+            splitted_url_elements=current_url.split("://")[1].split("/")
+            current_folder=current_url if len(splitted_url_elements)==1 or "." not in splitted_url_elements[-1] else current_url.rsplit("/",1)[0]
+
+            for style_tag in soup.find_all("style"):
+                css_urls=re.findall(r"url\(['\"]?([^'\"\)])['\"]?\)",style_tag.text)
+                filtered_css_urls=set(
+                    target if "://" in target else self.__join_url(current_folder,target) 
+                        for target in css_urls 
+                            if target)
+                
+                urls|=filtered_css_urls
+
+        return urls
+    
+    # TODO:
+    def __get_urls_from_css(self, source_code:str, current_url:str):
+        # from source_code extract urls using regex
+        # relative paths to absolute using current_url
+        
+        
+        pass
+    
+    
+    def __ping_url(self, url, allow_redirects:bool=False)->bool:
         # CHECK: have in mind that http redirects to https, causing this to return False.
         try:
-            response=requests.head(url, timeout=self.REQUEST_TIMEOUT, headers=self.custom_headers, allow_redirects=False)
+            response=requests.head(
+                url=url,
+                timeout=self.REQUEST_TIMEOUT,
+                headers=self.custom_headers,
+                allow_redirects=allow_redirects
+            )
             return response.status_code==200
         except: return False
 
     def __join_url(self, url, path):
         main_url_path=urlparse(url).path
 
-        if not main_url_path or "/"==main_url_path: 
-            ready_url=url.strip("/")
-        elif path.startswith("/"): 
-            ready_url=url.split(main_url_path)[0]
-        else: 
-            ready_url=url.rsplit("/",1)[0]+"/"
+        if not main_url_path or "/"==main_url_path:     ready_url=url.strip("/")
+        elif path.startswith("/"):                      ready_url=url.split(main_url_path)[0]
+        else:                                           ready_url=url.rsplit("/",1)[0]+"/"
 
         return ready_url+path
 
