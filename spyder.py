@@ -240,8 +240,6 @@ class SpYder:
         plt.savefig(self.GRAPH_MAP_FILE, dpi=200)
         # plt.show()
 
-
-
     def clear(self):
         for i in [self.ALL_URLS_FILE, self.GRAPH_MAP_FILE, self.UNIQUE_DOMAINS_FILE]:
             if exists(i): remove(i)
@@ -265,12 +263,15 @@ class SpYder:
                 self.__crawl2queue(url, id_num)
             elif operation==self.PING:
                 if self.__smart_ping(url):
-                    if topic=="links": self.links.add(url)
-                    elif topic=="media": self.media_urls.add(url)
-                    elif topic=="css": self.css_urls.add(url)
-                    elif topic=="js": self.js_urls.add(url)
+                    self.__save_url(topic, url)
 
         self.__logs(f"DEAD", id_num)
+
+    def __save_url(self, topic:str, url:str):
+        if topic=="links": self.links.add(url)
+        elif topic=="media": self.media_urls.add(url)
+        elif topic=="css": self.css_urls.add(url)
+        elif topic=="js": self.js_urls.add(url)
 
     def __crawl2queue(self,url:str, id_num:int):
         sorted_urls=self.crawl(url, id_num)
@@ -294,10 +295,14 @@ class SpYder:
                         self.__logs(f"QUEUE IS FULL!", id_num)
 
 
-                    url_crawlable=self.__is_crawlable(url) and not
+                    url_crawlable=self.__is_crawlable(url)
+                    url_pingable=not url_crawlable and self.settings["ping_urls"][origin]
+                    
+                    if not (url_crawlable or url_pingable):
+                        continue
+                        
                     self.todo_urls_queue.put(
-                        (self.CRAWL if url_topic in ["links", "css"] else self.PING, 
-                        url_topic, url)
+                        (self.CRAWL if url_crawlable else self.PING, url_topic, url)
                     )
 
     def __is_crawlable(self, url:str)->bool:
