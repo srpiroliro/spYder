@@ -4,7 +4,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 from datetime import datetime
 from os.path import exists
 from os import remove, mkdir
@@ -20,6 +20,11 @@ class SpYder:
     REQUEST_TIMEOUT=2
 
     QUEUE_MAXSIZE=0 # 100_000 # 0 === unlimited
+
+    # constants which will go into the queue
+    CRAWL=0
+    PING=1
+    CRAWLABLE_EXT=["php","css","htm","html"]
  
     DATA_FOLDER="data"
     UNIQUE_DOMAINS_FILE=f"{DATA_FOLDER}/unique_domains.json"
@@ -41,17 +46,24 @@ class SpYder:
         save_js_urls:bool=False, # ...
         save_links:bool=True, # by default its a only link crawler/getter.
         
-        check_url_status:bool=False, # all urls are checked for status. If true, at the end returns list of 4xx/5xx
+        save_dead_urls:bool=False, # all urls are checked for status. If true, at the end returns list of 4xx/5xx
         
+        ping_internal:bool=False,   # ping urls even if they wont be crawled.
+        ping_external:bool=False,   # ping urls even if they wont be crawled.
+
         internal_crawl:bool=True, # check internal content
+        internal_links:bool=False,
         internal_media:bool=False,
         internal_css:bool=False,
         internal_js:bool=False,
 
         external_crawl:bool=True, # check external content
+        external_links:bool=False,
         external_media:bool=False,
         external_css:bool=False,
         external_js:bool=False,
+
+        custom_headers:dict|None=None,
         
         queue_size:int=QUEUE_MAXSIZE,
         plot_it:bool=False, # open image directly. the more websiets crawled, more struggle
@@ -65,46 +77,41 @@ class SpYder:
         
         self.__logs()
 
+        self.custom_headers=self.HEADERS.copy() if not custom_headers else custom_headers
+
         # Request session (good for inteernal crawling)
         self.session=requests.Session()
-        self.session.headers.update(self.HEADERS)
+        self.session.headers.update(self.custom_headers)
 
         # Queue
         self.todo_urls_queue=queue.Queue(maxsize=queue_size)
 
 
         self.save_domains=True # save_domains
-        # CHECK: not efficient?
-        self.unique_domains=set()
-        self.visited_urls=set()
 
-        self.enable_all_urls=all_urls
-        if self.enable_all_urls:
+        self.save_all_urls=all_urls
+        if self.save_all_urls:
             self.all_urls={} # start_url:set(links)
-
 
 
         # ~ OPTIONS ~
         self.max_urls=max_urls
         self.max_domains=max_domains
         
-        # TODO: implement.
         self.save_media_urls=save_media_urls
         self.save_css_urls=save_css_urls
         self.save_js_urls=save_js_urls
         self.save_links=save_links
-        
-        self.check_url_status=check_url_status
-        
-        self.crawl_external=external_crawl
-        self.imgs_external=external_media
-        self.css_external=external_css
-        self.js_external=external_js
-        
-        self.crawl_internal=internal_crawl
-        self.imgs_internal=internal_media
-        self.css_internal=internal_css
-        self.js_internal=internal_js
+        self.save_dead_urls=save_dead_urls
+
+        self.settings={
+            "crawl":       {"external":external_crawl,    "internal":internal_crawl},
+            "links":       {"external":external_links,    "internal":internal_links},
+            "media":       {"external":external_media,    "internal":internal_media},
+            "css":         {"external":external_css,      "internal":internal_css},
+            "js":          {"external":external_js,       "internal":internal_js},
+            "ping_urls":   {"external":ping_external,     "internal":ping_internal}
+        }
         
         # Blacklistings
         self.blacklisted_domains=blacklisted_domains
@@ -117,9 +124,32 @@ class SpYder:
         if self.plot_it: 
             self.connections=[]
 
-    def crawl(self,url:str, id_num:int=0)->set:
-        found_links=set()
-        dirty_links=[]
+         # CHECK: not efficient?
+        self.unique_domains=set()
+        self.visited_urls=set()
+        self.unknown_urls=set() # links which returned 429.
+        
+        if self.save_dead_urls: 
+            self.dead_urls=set()
+            self.dead_domains=set() # to improve performance, we will save also domains
+
+        if self.save_links: self.links=set()
+        if self.save_media_urls: self.media_urls=set()
+        if self.save_css_urls: self.css_urls=set()
+        if self.save_js_urls: self.js_urls=set()
+
+
+    def crawl(self,url:str, id_num:int=0)->dict:
+        """
+            Crawls given url and returns set of found urls.
+        """
+
+        found_urls={
+            "links":{"external":set(),"internal":set()}, 
+            "media":{"external":set(),"internal":set()},
+            "css":{"external":set(),"internal":set()},
+            "js":{"external":set(),"internal":set()}
+        }
 
         starting_domain=self.__get_domain(url) 
         # cant return None due to being a valid url (if no exception was raised.)
@@ -127,43 +157,43 @@ class SpYder:
         self.visited_urls.add(self.__format_url(url))
         self.__logs(f"crawling: {str(url.encode()).replace('b','')}",id_num)
 
+        dirty_urls=[]
         try:
-            dirty_links=self.__get_urls(url)
-            self.__logs(f"got {len(dirty_links)} links")
+            dirty_urls=self.__get_urls(url)
+            self.__logs(f"got {len(dirty_urls)} links")
         except Exception as e:
             self.__logs(f"no links found. sad :( ",id_num)
-            return set()
+            return found_urls
         
         try:
-            clean_links=self.__clean_urls(starting_domain, url, dirty_links)
-
-            if self.crawl_external: found_links.update(clean_links["urls"]["external"])
-            if self.crawl_internal: found_links.update(clean_links["urls"]["internal"])
-            # TODO: add imgs,js and css
-
+            clean_urls=self.__clean_urls(starting_domain, url, dirty_urls) # type: ignore (can't be none)
             self.__logs(f"updating local sets/dicts",id_num)
 
             # CHECK: issue during multithreading?
-            if self.enable_all_urls:
+            if self.save_all_urls:
                 if starting_domain not in self.all_urls: self.all_urls[starting_domain]=set()
-                self.all_urls[starting_domain].update(found_links)
+                
+                for url_topic in found_urls:
+                    self.all_urls[starting_domain].update(clean_urls[url_topic]["internal"])
+                    self.all_urls[starting_domain].update(clean_urls[url_topic]["external"])
 
             if self.save_domains:
-                self.unique_domains.update(clean_links["domains"])
+                self.unique_domains.update(clean_urls["domains"])
                 self.__logs(f"saved them all",id_num)
 
             if self.plot_it:
-                self.connections+=[[starting_domain, other_domain] for other_domain in clean_links["domains"]]
+                self.connections+=[[starting_domain, other_domain] for other_domain in clean_urls["domains"]]
 
         except Exception as e:
             self.__logs(f"crawl error happend! -> e: {str(e).encode()}",id_num) 
             # encode() due to url encoding errors. 
-        
-        self.__logs(f"closing.",id_num)
+        else:
+            self.__logs(f"closing.",id_num)
 
-        return found_links
+            return clean_urls
+        return found_urls
 
-    def multicrawl(self, starting_url:str, threads_num:int=5)->None: 
+    def multicrawl(self, starting_url:str, threads_num:int=5)->dict: 
         self.__crawl2queue(starting_url, 0)
     
         threads=[]
@@ -181,6 +211,19 @@ class SpYder:
             self.__logs(f"graph drawn")
             self.graphs_map()
             self.__logs(f"drawing graph")
+        
+        return {
+            "unique_domains":self.unique_domains,
+            "visited_urls":self.visited_urls,
+            "unknown_urls":self.unknown_urls,
+            "dead_urls":self.dead_urls,
+            "dead_domains":self.dead_domains,
+            "all_urls":self.all_urls,
+            "css_urls":self.css_urls,
+            "js_urls":self.js_urls,
+            "media_urls":self.media_urls,
+            "links":self.links,
+        }
 
          
     def graphs_map(self):
@@ -216,30 +259,63 @@ class SpYder:
             self.__logs(f"unique domains: {len(self.unique_domains)}", id_num)
             self.__logs(f"visited urls: {len(self.visited_urls)}", id_num)
 
-            url=self.todo_urls_queue.get()
-            
-            self.__crawl2queue(url, id_num)
-        
+            operation, topic, url=self.todo_urls_queue.get()
+
+            if operation==self.CRAWL: 
+                self.__crawl2queue(url, id_num)
+            elif operation==self.PING:
+                if self.__smart_ping(url):
+                    if topic=="links": self.links.add(url)
+                    elif topic=="media": self.media_urls.add(url)
+                    elif topic=="css": self.css_urls.add(url)
+                    elif topic=="js": self.js_urls.add(url)
+
         self.__logs(f"DEAD", id_num)
 
     def __crawl2queue(self,url:str, id_num:int):
-        urls=self.crawl(url, id_num)
+        sorted_urls=self.crawl(url, id_num)
         # self.finished=self.finished and not bool(urls)
 
-        for url in urls:
-            url_domain=self.__get_domain()
-            if self.__format_url(url) in self.visited_urls or \
-                any([b in url_domain for b in self.blacklisted_words]) or \
-                url_domain in self.blacklisted_domains: 
+        for url_topic in sorted_urls:
+            for origin in sorted_urls[url_topic]:
+                for url in sorted_urls[url_topic][origin]:
 
-                # CHECK: any() too slow?
-                continue
+                    url_domain=self.__get_domain(url)
+                    if self.__format_url(url) in self.visited_urls or \
+                            any(b in url_domain for b in self.blacklisted_words) or \
+                            url_domain in self.blacklisted_domains or \
+                            url in self.dead_urls: 
 
-            elif self.todo_urls_queue.full(): self.__logs(f"QUEUE IS FULL!", id_num)
+                        continue
+                    elif url_domain in self.dead_domains:
+                        self.dead_urls.add(url)
 
-            self.todo_urls_queue.put(url)
+                    elif self.todo_urls_queue.full(): 
+                        self.__logs(f"QUEUE IS FULL!", id_num)
 
-    def __get_urls(self,url)->list:
+
+                    url_crawlable=self.__is_crawlable(url) and not
+                    self.todo_urls_queue.put(
+                        (self.CRAWL if url_topic in ["links", "css"] else self.PING, 
+                        url_topic, url)
+                    )
+
+    def __is_crawlable(self, url:str)->bool:
+        """
+            Returns True if url is crawlable, False otherwise.
+        """
+        url_data=urlparse(url)
+        url_file_extension=url_data.path.split(".")[-1].lower()
+        
+        # CHECK: may be not very precise due to urls to root (something/) being considered as files.
+        return not url_file_extension or url_file_extension in self.CRAWLABLE_EXT
+
+    def __get_urls(self,url)->dict:
+        """
+            Returns a dict ( {links, media, css, js} ) of urls found in given url.
+            An exception is raised if the requests fails.
+        """
+
         url_file=url.split("?")[0].split("://")[1].lower()
         if not (url_file.endswith("/") or "." not in url_file.split("/")[-1] or url_file.count("/")==0):
             url_file=url_file.split("/")[-1]
@@ -248,60 +324,100 @@ class SpYder:
         if not (".htm" in url_file or ".php" in url_file or ".css" in url_file):
             raise Exception(f"given file ({url_file}) isn't supported.")
 
+        try:
+            response=self.session.get(url, timeout=self.REQUEST_TIMEOUT)
+            if response.status_code==429: self.unknown_urls.add(url) #TODO: if 429, add to unknown_urls
+        except Exception as e:
+            if self.save_dead_urls: self.dead_urls.add(url)
 
-        response=self.session.get(url, timeout=self.REQUEST_TIMEOUT, headers=self.custom_headers)
-        assert response.status_code==200
+            raise Exception(f"request error -> e: {str(e).encode()}")
+        else:
+            source_code=response.text
 
-        source_code=response.text.encode()
-        if ".htm" in url_file or ".php" in url_file:
-            return self.__get_urls_from_html(source_code, url)
-        elif ".css" in url_file and self.save_css_urls:
-            return self.__get_urls_from_css(source_code, url)
-        
-        return
+            links=set()
+            css=set()
+            js=set()
+            media=set()
+
+            if ".htm" in url_file or ".php" in url_file:
+                links, media, css, js = self.__get_urls_from_html(source_code, url)
+            elif ".css" in url_file and self.save_css_urls:
+                media, css = self.__get_urls_from_css(source_code, url)
+            
+            return {
+                "links":links,
+                "media":media,
+                "css":css,
+                "js":js
+            }
     
-    def __get_urls_from_html(self, source_code:str, current_url:str):
+    def __get_urls_from_html(self, source_code:str, base_url:str) -> tuple:
         soup=BeautifulSoup(source_code,"html.parser")
+
+        links=set()
+        css=set()
+        js=set()
+        media=set()
         
-        urls=set()
         if self.save_links:
-            urls|=set(node.get("href").strip() for node in soup.find_all("a") if node.get("href"))
+            links=set(node.get("href").strip() for node in soup.find_all("a") if node.get("href"))
         
         if self.save_css_urls:
-            urls|=set(node.get("href").strip() for node in soup.find_all("link") if node.get("href"))
+            css=set(node.get("href").strip() for node in soup.find_all("link") if node.get("href"))
             
         if self.save_js_urls:
-            urls|=set(node.get("src").strip() for node in soup.find_all("script") if node.get("src"))
+            js=set(node.get("src").strip() for node in soup.find_all("script") if node.get("src"))
             
         if self.save_media_urls:
-            urls|=set(node.get("src").strip() for node in soup.find_all("img") if node.get("src"))
-            urls|=set(node.get("src").strip() for node in soup.find_all("video") if node.get("src"))
+            media=set(node.get("src").strip() for node in soup.find_all("img") if node.get("src"))
+            media|=set(node.get("src").strip() for node in soup.find_all("video") if node.get("src"))
             
-            splitted_url_elements=current_url.split("://")[1].split("/")
-            current_folder=current_url if len(splitted_url_elements)==1 or "." not in splitted_url_elements[-1] else current_url.rsplit("/",1)[0]
-
             for style_tag in soup.find_all("style"):
-                css_urls=re.findall(r"url\(['\"]?([^'\"\)])['\"]?\)",style_tag.text)
-                filtered_css_urls=set(
-                    target if "://" in target else self.__join_url(current_folder,target) 
-                        for target in css_urls 
-                            if target)
-                
-                urls|=filtered_css_urls
+                media|=set(self.__get_urls_from_css(style_tag.text, base_url))
 
-        return urls
+        return links, media, css, js
+
+    def __get_urls_from_css(self, css_content:str, base_url:str) -> tuple:
+        url_pattern=re.compile(r'url\(["\']?(.*?)["\']?\)')
+        urls=url_pattern.findall(css_content)
+
+        media=set()
+        css=set()
+
+        for url in urls:
+            absolute_url=urljoin(base_url, url)
+            if absolute_url.split("?")[0].split("#")[0].endswith(".css"):
+                css.add(absolute_url)
+            else:
+                media.add(absolute_url)
+
+        return media, css
     
-    # TODO:
-    def __get_urls_from_css(self, source_code:str, current_url:str):
-        # from source_code extract urls using regex
-        # relative paths to absolute using current_url
-        
-        
-        pass
-    
-    
+    def __smart_ping(self, url:str)->bool:
+        """
+            Returns True if url is alive, False otherwise.
+        """
+
+        url_domain=self.__get_domain(url)
+        if url_domain in self.dead_domains: return False
+
+        if self.__ping_url(url): return True
+
+        new_url=url
+        if url.startswith("https://"): new_url=url.replace("https://","http://")
+        elif url.startswith("http://"): new_url=url.replace("http://","https://")
+
+        if self.__ping_url(new_url): return True
+
+        self.dead_urls.add(url)
+
+        if not self.__ping_url(f"https://{url_domain}"):
+            self.dead_domains.add(url_domain)
+
+        return False
+
+
     def __ping_url(self, url, allow_redirects:bool=False)->bool:
-        # CHECK: have in mind that http redirects to https, causing this to return False.
         try:
             response=requests.head(
                 url=url,
@@ -312,18 +428,9 @@ class SpYder:
             return response.status_code==200
         except: return False
 
-    def __join_url(self, url, path):
-        main_url_path=urlparse(url).path
-
-        if not main_url_path or "/"==main_url_path:     ready_url=url.strip("/")
-        elif path.startswith("/"):                      ready_url=url.split(main_url_path)[0]
-        else:                                           ready_url=url.rsplit("/",1)[0]+"/"
-
-        return ready_url+path
-
     def __get_domain(self, url:str)->str|None:
         _, name, suffix=tldextract.extract(url)
-        return f"{name}.{suffix}".lower() if name and suffix else False
+        return f"{name}.{suffix}".lower() if name and suffix else ""
     
     def __get_path(self,url:str)->str:
         path=urlparse(url).path
@@ -335,38 +442,52 @@ class SpYder:
 
         return domain+self.__get_path(url)
 
-    def __clean_urls(self, start_domain, start_url, links):
-        sorted_urls={"external":set(),"internal":set()}
-        domains=set()
-        
-        # TODO: add img, css and js.
+    def __clean_urls(self, start_domain:str, start_url:str, urls:dict):
+        """
+            Returns a dict of urls sorted by external/internal and a set of domains.
+        """
+        result={
+            "links":{"external":set(),"internal":set()}, 
+            "media":{"external":set(),"internal":set()},
+            "css":{"external":set(),"internal":set()},
+            "js":{"external":set(),"internal":set()},
+            
+            "domains":set()
+        }
+       
+        for topic in ["links","media","css","js"]:
+            for link in urls[topic]:
+                if self.__check_external(start_domain, link):
+                    domain=self.__get_domain(link)
+                    if not domain: continue
 
-        for link in links:
-            if link.startswith("http") and "://" in link:
-                domain=self.__get_domain(link)
+                    result[topic]["external"].add(link)
+                    result["domains"].add(domain)
 
-                if not domain: continue
-                elif domain==start_domain:
-                    sorted_urls["internal"].add(link)
-                else:
-                    sorted_urls["external"].add(link)
-                    domains.add(domain)
+                elif self.__check_internal(start_domain, link):
+                    result[topic]["internal"].add(link if link.startswith("http") else urljoin(start_url, link))
 
-            elif ":" not in link \
-                and not "//" in link \
-                    and not link.startswith("?") \
-                    and not link.startswith("#") \
-                    and not link.startswith("data:"):
+        return result
+    
+    def __check_external(self, base_domain:str, url:str)->bool:
+        if not (url.startswith("http") and "://" in url): return False
+        return self.__get_domain(url)!=base_domain
 
-               sorted_urls["internal"].add(self.__join_url(start_url, link)) 
+    def __check_internal(self, base_domain:str, url:str)->bool:
+        if url.startswith("http") and "://" in url: 
+            return self.__get_domain(url)!=base_domain
 
-        return {"urls":sorted_urls, "domains":domains}
+        return not ":" in url \
+            and not "//" in url \
+            and not url.startswith("?") \
+            and not url.startswith("#") \
+            and not url.startswith("data:")
 
     def __save_data(self):
         self.__json2file(self.UNIQUE_DOMAINS_FILE, list(self.unique_domains))
 
         # CHECK: slow?
-        if self.enable_all_urls:
+        if self.save_all_urls:
             tmp={}
             if type(self.all_urls) is dict:
                 for domain in self.all_urls:
@@ -375,7 +496,7 @@ class SpYder:
 
             self.__json2file(self.ALL_URLS_FILE, tmp)
 
-    def __logs(self, message:str=None, thread_num:int=0):
+    def __logs(self, message:str|None=None, thread_num:int=0):
         if message is None:
             with open(self.LOGS_FILE, "w") as f: f.write("")
             return

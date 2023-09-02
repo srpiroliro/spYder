@@ -1,5 +1,14 @@
 # Spyder
 
+- get inner url link
+- which domains does the web link to
+- which urls does the web link to
+- crawl X levels of depth of urls for more urls/domains
+- get missing files from web (css, media, js...)
+- get broken links
+- 
+
+
 ## todo:
 - [ ] pass url, threads, domains... through cli
 - [x] blacklisted 
